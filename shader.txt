@@ -1,0 +1,21 @@
+#UVmode 2
+#textype 0 2D
+#textype 1 2D
+#textype 2 2D
+#textype 3 2D
+mov vec0.rgba 1,1,1,1
+stex vec0.rgba tex0 uv0
+test mat0.texcount 1
+ble final_combiner
+	stex vec1.rgba tex1 uv1
+	mulcpy vec0.rgba vec1.rgba
+		test mat0.texcount 2
+		ble final_combiner
+			stex vec2.rgba tex2 uv2
+			mulcpy vec0.rgba vec2.rgba
+				test mat0.texcount 3
+				ble final_combiner
+					stex vec3.rgba tex3 uv3
+					mulcpy vec0.rgba vec3.rgba
+
+mov outCol.rgba vec0.rgba #final_combiner

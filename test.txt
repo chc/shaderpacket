@@ -1,0 +1,3 @@
+stex vec0.rgba tex0 uv0
+stex vec1.rgba tex1 uv1
+mulcpy vec0.rgba vec1.rgba
