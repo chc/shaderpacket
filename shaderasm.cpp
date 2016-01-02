@@ -9,9 +9,9 @@
 
 #include "GLSLBuilder.h"
 
-#define MAX_MATERIAL_TEXTURES 4
-#define MAX_JUMPS 100
-#define BUFFER_SIZE 1000
+namespace ShaderASM {
+
+
 
 #define DefineSearchFunction(return_type, func_name, struct_name, struct_name_var, struct_return_var) return_type func_name(const char *name) { \
 		for(int i=0;i<sizeof(struct_name)/sizeof(struct_name[0]);i++) { \
@@ -58,6 +58,7 @@ struct {
 	{EShaderInstruction_Mov, "MOV"},
 	//special instructions
 	{EShaderInstruction_SampleTex, "STEX"},
+	{EShaderInstruction_Lerp, "LERP"},
 };
 
 
@@ -113,33 +114,15 @@ struct {
 	{EPreProcessor_Marker, "MARKER"},
 };
 
-struct {
-	ETextureSampleType tex_types[MAX_MATERIAL_TEXTURES];
-	uint8_t UVMode; //2, or 3(xy, xyz)
 
-	char opcodeBuffer[BUFFER_SIZE];
-	int opcodeWriteIDX;
-	int instruction_count;
-	int jump_index;
-	
-} ShaderASMState;
+
+ShaderASMState g_asmState;
 
 struct {
 	char name[32];
 	uint16_t index;
 } JumpTable[MAX_JUMPS];
 
-typedef struct {
-	EShaderRegister registers[3];
-	uint32_t accessors[3];
-	char indexes[3];
-	union {
-		float f_val;
-		uint32_t uintval;
-	} values[3][4]; //4 because of vectors
-	uint8_t num_values[3]; //how many values are written
-	uint16_t jump_index; //where a branch should jump to
-} EOperandInfo;
 
 uint16_t find_jump_index_by_name(const char *name) {
 	for(int i=0;i<MAX_JUMPS;i++) {
@@ -149,50 +132,56 @@ uint16_t find_jump_index_by_name(const char *name) {
 	}
 	return -1;
 }
+bool isbranch(EShaderInstruction instruction) {
+	return instruction >= EShaderInstruction_BranchBegin && instruction <= EShaderInstruction_BranchEnd;
+}
+bool isliteral(EShaderRegister reg) {
+	return reg >= EShaderRegister_BeginLiteral && reg <= EShaderRegister_EndLiteral;
+}
 void write_instruction(EShaderInstruction inst, EOperandInfo *operands, InstructionModifiers *modifiers) {
-	ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX++] = (uint8_t)inst;
-	ShaderASMState.instruction_count++;
+	g_asmState.opcodeBuffer[g_asmState.opcodeWriteIDX++] = (uint8_t)inst;
+	g_asmState.instruction_count++;
 	if(isbranch(inst)) {
-		memcpy(&ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX], &operands->jump_index, sizeof(uint16_t));
-		ShaderASMState.opcodeWriteIDX += sizeof(uint16_t);
+		memcpy(&g_asmState.opcodeBuffer[g_asmState.opcodeWriteIDX], &operands->jump_index, sizeof(uint16_t));
+		g_asmState.opcodeWriteIDX += sizeof(uint16_t);
 		return;
 	} else {
-		memcpy(&ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX], modifiers, sizeof(InstructionModifiers));
-		ShaderASMState.opcodeWriteIDX += sizeof(InstructionModifiers);
+		memcpy(&g_asmState.opcodeBuffer[g_asmState.opcodeWriteIDX], modifiers, sizeof(InstructionModifiers));
+		g_asmState.opcodeWriteIDX += sizeof(InstructionModifiers);
 	}
 	uint8_t operand_count = 0;
-	for(int i=0;i<3;i++) {
+	for(int i=0;i<MAX_OPERANDS;i++) {
 		if(operands->registers[i] != 0) {
 			operand_count++;
 		}
 	}
-	ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX++] = operand_count;
+	g_asmState.opcodeBuffer[g_asmState.opcodeWriteIDX++] = operand_count;
 	for(int i=0;i<operand_count;i++) {
-		ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX++] = (uint8_t)operands->registers[i];
+		g_asmState.opcodeBuffer[g_asmState.opcodeWriteIDX++] = (uint8_t)operands->registers[i];
 
 		if(isliteral(operands->registers[i])) {
-			ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX++] = (uint8_t)operands->num_values[i];
+			g_asmState.opcodeBuffer[g_asmState.opcodeWriteIDX++] = (uint8_t)operands->num_values[i];
 			switch(operands->registers[i]) {
 				case EShaderRegister_Float:
 				{
 					for(int j=0;j<operands->num_values[i];j++) {
-						memcpy(&ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX], &operands->values[i][j].f_val, sizeof(float));
-						ShaderASMState.opcodeWriteIDX += sizeof(float);
+						memcpy(&g_asmState.opcodeBuffer[g_asmState.opcodeWriteIDX], &operands->values[i][j].f_val, sizeof(float));
+						g_asmState.opcodeWriteIDX += sizeof(float);
 					}
 					break;
 				}
 				case EShaderRegister_UInt:
 				{
 					for(int j=0;j<operands->num_values[i];j++) {
-						memcpy(&ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX], &operands->values[i][j].uintval, sizeof(uint32_t));
-						ShaderASMState.opcodeWriteIDX += sizeof(uint32_t);
+						memcpy(&g_asmState.opcodeBuffer[g_asmState.opcodeWriteIDX], &operands->values[i][j].uintval, sizeof(uint32_t));
+						g_asmState.opcodeWriteIDX += sizeof(uint32_t);
 					}
 					break;
 				}
 			}
 		} else {
-			ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX++] = (uint8_t)operands->indexes[i];
-			ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX++] = (uint8_t)operands->accessors[i];
+			g_asmState.opcodeBuffer[g_asmState.opcodeWriteIDX++] = (uint8_t)operands->indexes[i];
+			g_asmState.opcodeBuffer[g_asmState.opcodeWriteIDX++] = (uint8_t)operands->accessors[i];
 		}
 	}
 	
@@ -252,7 +241,7 @@ void process_macro(const char *line) {
 		case EPreProcessor_UVLength:
 			find_nth((char *)line, 1, param, sizeof(param));
 			uv_mode = atoi(param);
-			ShaderASMState.UVMode = uv_mode;
+			g_asmState.UVMode = uv_mode;
 			//printf("Setting UV Mode to: %d\n",uv_mode);
 			break;
 		case EPreProcessor_TexSamplerType:
@@ -262,7 +251,7 @@ void process_macro(const char *line) {
 			find_nth((char *)line, 2, param, sizeof(param));
 			//printf("Selected Tex: %d %s\n",uv_mode, line);
 			sample_mode = find_texture_sampler_by_name(param);
-			ShaderASMState.tex_types[uv_mode] = sample_mode;
+			g_asmState.tex_types[uv_mode] = sample_mode;
 			break;
 		case EPreProcessor_Marker:
 			break;
@@ -341,7 +330,7 @@ void process_instruction(char *line) {
 	while(true) {
 		memset(&operandtxt,0,sizeof(operand));
 		find_nth((char *)line, idx++, operandtxt, sizeof(operand));
-		if(strlen(operandtxt) < 1 || idx-1 > 3) break;
+		if(strlen(operandtxt) < 1 || idx-1 > MAX_OPERANDS) break;
 		parse_operand(operandtxt, &operand, idx-2, instruction);
 		printf("oper: %s\n", operandtxt);
 	}
@@ -358,15 +347,15 @@ void process_line(char *line) {
 	}
 }
 void process_marker(char *line, int instruction_number) {
-	JumpTable[ShaderASMState.jump_index].index = instruction_number;
+	JumpTable[g_asmState.jump_index].index = instruction_number;
 	char *p = strrchr(line, '#');
 	if(p != NULL) {
-		strcpy(JumpTable[ShaderASMState.jump_index].name, p+1);
+		strcpy(JumpTable[g_asmState.jump_index].name, p+1);
 		printf("%s is marker line\n",p+1);
 	}
 }
-void compile_shader(FILE *fd) {
-	char line[128];
+void compile_shader_file(FILE *fd) {
+	char line[256];
 	memset(&line,0,sizeof(line));
 	int i =0;
 	char c;
@@ -389,14 +378,80 @@ void compile_shader(FILE *fd) {
 		}
 	}
 }
-void preprocess_shader(FILE *fd) {
-	char line[128];
+void compile_shader_mem(void *data, int len) {
+	char line[256];
+	memset(&line,0,sizeof(line));
+	int i =0;
+	char c;
+	char *p = (char *)data;
+	while((len-- > 0) && (c = (char)*p++)) {
+		if(c == 0) {
+			line[i] = 0;
+			if(line[0] != '#' || line[0] == ';')
+				process_line(line); 
+			//printf("Last line: %s\n",line);
+			break;
+		} else if(c == '\t' || c=='\r') {
+		} else if(c == '\n') {
+			line[i] = 0;
+			i = 0;
+			if(line[0] != '#' || line[0] == ';')
+				process_line(line);
+			//printf("Parse line: %s\n",line);
+		}else {
+			line[i++] = c;
+		}
+	}
+}
+void preprocess_shader_file(FILE *fd) {
+	char line[256];
 	memset(&line,0,sizeof(line));
 	int i =0;
 	char c;
 	int inst_idx = 0;
 	while(c = fgetc(fd)) {
 		if(c == EOF) {
+			line[i] = 0;
+			if(line[0] == '#' || line[0] == ';') {
+				process_line(line);
+			} else if(strchr(line, '#') != NULL) {
+				printf("process line is: %d\n",inst_idx);
+				process_marker(line, inst_idx);
+				inst_idx++;
+			} else {
+				inst_idx++;
+			}
+			//printf("Last line: %s\n",line);
+			break;
+		} else if(c == '\t' || c=='\r') {
+		} else if(c == '\n') {
+			line[i] = 0;
+			i = 0;
+			if(line[0] == '#' || line[0] == ';') {
+				process_line(line);
+			} else if(strchr(line, '#') != NULL) {
+				printf("process line is: %d\n",inst_idx);
+				process_marker(line, inst_idx);
+				
+				inst_idx++;
+			} else {
+				inst_idx++;
+			}
+			//printf("Parse line: %s\n",line);
+		}else {
+			line[i++] = c;
+		}
+	}
+}
+void preprocess_shader_mem(void *data, int len) {
+	char line[256];
+	memset(&line,0,sizeof(line));
+	int i =0;
+	char c;
+	int inst_idx = 0;
+	char *p = (char *)data;
+	while((len-- > 0) && (c = (char)*p++)) {
+		if(c == 0) {
 			line[i] = 0;
 			if(line[0] == '#' || line[0] == ';') {
 				process_line(line);
@@ -527,32 +582,56 @@ void parse_operand(char *string, EOperandInfo *operand, int index, EShaderInstru
 	}
 }
 
-bool isbranch(EShaderInstruction instruction) {
-	return instruction >= EShaderInstruction_BranchBegin && instruction <= EShaderInstruction_BranchEnd;
+
+
+void run_shader_file(FILE *fd) {
+	preprocess_shader_file((FILE*)fd);
+	compile_shader_file((FILE*)fd);
 }
-bool isliteral(EShaderRegister reg) {
-	return reg >= EShaderRegister_BeginLiteral && reg <= EShaderRegister_EndLiteral;
+void run_shader_mem(void *data, int len) {
+	preprocess_shader_mem(data, len);
+	compile_shader_mem(data, len);
 }
 
+int file_len(FILE *fd) {
+	int pos = ftell(fd);
+	int flen = 0;
+	fseek(fd,0,SEEK_END);
+	flen = ftell(fd);
+	fseek(fd,pos, SEEK_SET);
+	return flen;
+}
+}
+
+
 int main() {
+	/*
 	FILE *fd = fopen("test.txt","rb");
 	if(!fd) {
 		return -1;
 	}
-	memset(&ShaderASMState,0,sizeof(ShaderASMState));
-	preprocess_shader(fd);
+	memset(&ShaderASM::g_asmState,0,sizeof(ShaderASM::g_asmState));
+	ShaderASM::preprocess_shader_file(fd);
 	fseek(fd,0,SEEK_SET);
-	compile_shader(fd);
-
-
-	FILE *shaderout = fopen("shader.bin","wb");
-	
-	fwrite(ShaderASMState.opcodeBuffer,ShaderASMState.opcodeWriteIDX,1,shaderout);
-	fclose(shaderout);
-
+	ShaderASM::compile_shader_file(fd);
 	ShaderLib::GLSLBuilder *builder = new ShaderLib::GLSLBuilder();
 	char out[2048];
 	int outlen;
-	builder->build((char *)&out,&outlen,ShaderASMState.opcodeBuffer,ShaderASMState.opcodeWriteIDX);
+	builder->build((char *)&out,&outlen,(char *)ShaderASM::g_asmState.opcodeBuffer,ShaderASM::g_asmState.opcodeWriteIDX);
+	*/
+
+	void *buff;
+	FILE *fd = fopen("dump.bin","rb");
+
+	int len = ShaderASM::file_len(fd);
+	buff = malloc(len);
+
+	fread(buff,len,1,fd);
+	
+	ShaderLib::GLSLBuilder *builder = new ShaderLib::GLSLBuilder();
+	char out[2048];
+	int outlen;
+	builder->build((char *)&out,&outlen,(char *)buff,len);
+
 	return 0;
 }

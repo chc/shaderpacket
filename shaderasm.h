@@ -1,6 +1,7 @@
 #ifndef _SHADERASM_H
 #define _SHADERASM_H
 #include <stdint.h>
+namespace ShaderASM {
 enum ETextureSampleType {
 	ETextureSampleType_2D = 1,
 	ETextureSampleType_Cube,
@@ -31,6 +32,7 @@ enum EShaderInstruction {
 	EShaderInstruction_Mov,
 	//special instructions
 	EShaderInstruction_SampleTex,
+	EShaderInstruction_Lerp,
 };
 
 /*
@@ -77,6 +79,48 @@ typedef struct {
 	float clamp_min;//0.0 - 0.0 = no clamp
 	float clamp_max; 
 } InstructionModifiers;
+
+#define MAX_MATERIAL_TEXTURES 4
+#define MAX_JUMPS 100
+#define BUFFER_SIZE 1000
+
+typedef struct {
+	ETextureSampleType tex_types[MAX_MATERIAL_TEXTURES];
+	uint8_t UVMode; //2, or 3(xy, xyz)
+
+	char opcodeBuffer[BUFFER_SIZE];
+	int opcodeWriteIDX;
+	int instruction_count;
+	int jump_index;
+	
+} ShaderASMState;
+
+
+#define MAX_OPERANDS 4
+typedef struct {
+	EShaderRegister registers[MAX_OPERANDS];
+	uint32_t accessors[MAX_OPERANDS];
+	char indexes[MAX_OPERANDS];
+	union {
+		float f_val;
+		uint32_t uintval;
+	} values[MAX_OPERANDS][4]; //4 because of vectors
+	uint8_t num_values[MAX_OPERANDS]; //how many values are written
+	uint16_t jump_index; //where a branch should jump to
+} EOperandInfo;
+extern ShaderASMState g_asmState;
+
 bool isbranch(EShaderInstruction instruction);
 bool isliteral(EShaderRegister reg);
+
+void preprocess_shader_from_file(FILE *fd);
+void preprocess_shader_mem(void *data, int len);
+
+void compile_shader_file(FILE *fd);
+void compile_shader_mem(void *data, int len);
+
+void run_shader_file(FILE *fd);
+void run_shader_mem(void *data, int len);
+
+}
 #endif //_SHADERASM_H

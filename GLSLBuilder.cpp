@@ -2,6 +2,7 @@
 #include <memory.h>
 #include <string.h>
 #include "GLSLBuilder.h"
+using namespace ShaderASM;
 namespace ShaderLib {
 		NameMap GLSLBuilder::m_texname_map[] = {
 			{0, "texture2D"},
@@ -61,11 +62,11 @@ namespace ShaderLib {
 			}
 		}
 		void GLSLBuilder::get_instruction(char *out, int *len, InstructionPack *data) {
-			char operand[3][32];
-			int operand_len[3];
+			char operand[4][32];
+			int operand_len[4];
 			memset(&operand,0,sizeof(operand));
 			*out = 0;
-			for(int i=0;i<3;i++) {
+			for(int i=0;i<4;i++) {
 				get_operand(data, i, (char *)&operand[i], &operand_len[i]);
 			}
 			switch(data->instuction) {
@@ -75,6 +76,10 @@ namespace ShaderLib {
 				}
 				case EShaderInstruction_SampleTex: {
 					*len = sprintf(out, "%s = %s(%s, %s);",operand[0],m_texname_map[m_uv_mode[data->register_index[0]]].name,operand[1], operand[2]);
+					break;
+				}
+				case EShaderInstruction_Lerp: {
+					*len = sprintf(out, "%s = mix(%s, %s, %s);",operand[0],operand[1], operand[2], operand[3]);
 					break;
 				}
 				case EShaderInstruction_MulCpy: {
@@ -119,9 +124,18 @@ namespace ShaderLib {
 			memset(&valbuf,0,sizeof(valbuf));
 			memset(&temp,0,sizeof(temp));
 			switch(data->reg[index]) {
+				case EShaderRegister_OutColour:  {
+					len += sprintf(temp, "out_Colour");
+					if(data->accessor[index] & EVectorFlags_Negate) {
+						strcat(out, "-");
+						len++;
+					}
+					strcat(out, temp);
+					break;
+				}
 				case EShaderRegister_Vector:
 				{
-					len += sprintf(temp, "vec%d",data->register_index[index]);
+					len += sprintf(temp, "vecs[%d]",data->register_index[index]);
 					if(data->accessor[index] & EVectorFlags_Negate) {
 						strcat(out, "-");
 						len++;
@@ -131,7 +145,7 @@ namespace ShaderLib {
 				}
 				case EShaderRegister_Mat:
 				{
-					len += sprintf(temp, "mat[%d]",data->register_index[index]);
+					len += sprintf(temp, "material");
 					if(data->accessor[index] & EVectorFlags_Negate) {
 						strcat(out, "-");
 						len++;
@@ -212,8 +226,8 @@ namespace ShaderLib {
 					len += 9;
 				} else if(data->accessor[index] & EMaterialDataType_Diffuse) {
 					out[len++] = '.';
-					strcat(out, "diffuse");
-					len += 7;
+					len += sprintf(temp, "diffuse[%d]",data->register_index[index]);
+					strcat(out, temp);
 				}
 				if(data->accessor[index] & EVectorFlags_Red|EVectorFlags_Blue|EVectorFlags_Green|EVectorFlags_Alpha)
 					out[len++] = '.';

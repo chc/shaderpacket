@@ -1,19 +1,20 @@
 #ifndef _GLSLBUILDER_H
 #define _GLSLBUILDER_H
 #include "Builder.h"
+#include "shaderasm.h"
 namespace ShaderLib {
 	typedef struct {
-		EShaderInstruction instuction;
-		uint8_t reg[3];
-		uint8_t register_index[3];
-		uint8_t accessor[3];
+		ShaderASM::EShaderInstruction instuction;
+		uint8_t reg[MAX_OPERANDS];
+		uint8_t register_index[MAX_OPERANDS];
+		uint8_t accessor[MAX_OPERANDS];
 		uint16_t jump;
 		union {
 			float f_val;
 			uint32_t uintval;
 		} values[3][4]; //4 because of vectors
 		uint8_t num_values[3];
-		InstructionModifiers modifiers;
+		ShaderASM::InstructionModifiers modifiers;
 	} InstructionPack;
 	typedef struct {
 		uint8_t mode;
