@@ -15,7 +15,7 @@
 
 #define DefineSearchFunction(return_type, func_name, struct_name, struct_name_var, struct_return_var) return_type func_name(const char *name) { \
 		for(int i=0;i<sizeof(struct_name)/sizeof(struct_name[0]);i++) { \
-			if(!stricmp(struct_name[i].struct_name_var, name)) { \
+			if(!strnicmp(struct_name[i].struct_name_var, name,strlen(struct_name[i].struct_name_var))) { \
 				return struct_name[i].struct_return_var; \
 			} \
 		} \
@@ -93,13 +93,10 @@ struct {
 	{EVectorFlags_Alpha, 'W'},
 };
 
-enum EMaterialDataType {
-	EMaterialDataType_TexCount,
-	EMaterialDataType_Diffuse,
-};
+
 
 struct {
-	EMaterialDataType type;
+	EVectorFlags type;
 	const char *name;
 } MaterialAccessors[] = {
 	{EMaterialDataType_TexCount, "TEXCOUNT"},
@@ -142,8 +139,8 @@ typedef struct {
 	} values[3][4]; //4 because of vectors
 	uint8_t num_values[3]; //how many values are written
 	uint16_t jump_index; //where a branch should jump to
-	
 } EOperandInfo;
+
 uint16_t find_jump_index_by_name(const char *name) {
 	for(int i=0;i<MAX_JUMPS;i++) {
 		if(!strcmp(name, JumpTable[i].name)) {
@@ -152,13 +149,16 @@ uint16_t find_jump_index_by_name(const char *name) {
 	}
 	return -1;
 }
-void write_instruction(EShaderInstruction inst, EOperandInfo *operands) {
+void write_instruction(EShaderInstruction inst, EOperandInfo *operands, InstructionModifiers *modifiers) {
 	ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX++] = (uint8_t)inst;
 	ShaderASMState.instruction_count++;
 	if(isbranch(inst)) {
 		memcpy(&ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX], &operands->jump_index, sizeof(uint16_t));
 		ShaderASMState.opcodeWriteIDX += sizeof(uint16_t);
 		return;
+	} else {
+		memcpy(&ShaderASMState.opcodeBuffer[ShaderASMState.opcodeWriteIDX], modifiers, sizeof(InstructionModifiers));
+		ShaderASMState.opcodeWriteIDX += sizeof(InstructionModifiers);
 	}
 	uint8_t operand_count = 0;
 	for(int i=0;i<3;i++) {
@@ -199,7 +199,7 @@ void write_instruction(EShaderInstruction inst, EOperandInfo *operands) {
 }
 void parse_operand(char *string, EOperandInfo *operand, int index, EShaderInstruction instruction);
 DefineSearchFunction(EPreProcessorType, find_preprocessor_token_by_name, PreProcessorOptions, name, type)
-DefineSearchFunction(EMaterialDataType, find_material_accessor_by_name, MaterialAccessors, name, type)
+DefineSearchFunction(EVectorFlags, find_material_accessor_by_name, MaterialAccessors, name, type)
 DefineSearchFunction(ETextureSampleType, find_texture_sampler_by_name, SamplerMap, name, type)
 DefineSearchFunction(EShaderRegister, find_register_by_name, RegisterMap, name, reg)
 DefineSearchFunction(EShaderInstruction, find_instruction_by_name, InstructionMap, name, instruction)
@@ -268,9 +268,50 @@ void process_macro(const char *line) {
 			break;
 	}
 }
+void get_modifiers(char *func, char *args, InstructionModifiers *modifiers) {
+	if(!stricmp(func,"x")) {
+		modifiers->multiplier = atof(args);
+	} else if(!stricmp(func,"clamp")) {
+		char *pch = strtok(args, ",");
+		int i = 0;
+		while(pch != NULL) {
+			if(i == 0) {
+				modifiers->clamp_min = atof(pch);
+			} else {
+				modifiers->clamp_max = atof(pch);
+			}
+			i++;
+			pch = strtok(NULL, ",");
+		}
+	}
+}
+void parse_result_modifiers(char *line, InstructionModifiers *modifiers) {
+	char *p = strchr(line, '|');
+	int i = 0;
+	char param[128];
+	char func[64];
+	char args[64];
+	memset(&param,0,sizeof(param));
+	if(p != NULL) {
+		*p = 0;
+		p++;
+		while(true) {
+			find_nth(p, i++, param, sizeof(param));
+			memset(&func,0,sizeof(func));
+			memset(&args,0,sizeof(args));
+			if(strlen(param) == 0) break;
+			char *x = strchr(param, '(');
+			if(x == NULL) break;
+			char *x1 = strchr(x,')');
+			strncpy(func,param,x-param);
+			strncpy(args,x+1,x1-x-1);
+			get_modifiers((char *)&func, (char *)&args, modifiers);
+			//printf("%s %s\n",func, args);
+		}		
+	}
+}
 
-
-void process_instruction(const char *line) {
+void process_instruction(char *line) {
 	const char *p = strchr(line, ' ');
 	char inst[32];
 	char param[32];
@@ -292,6 +333,11 @@ void process_instruction(const char *line) {
 
 	EOperandInfo operand;
 	memset(&operand,0,sizeof(operand));
+
+	InstructionModifiers modifiers;
+	memset(&modifiers, 0, sizeof(modifiers));
+
+	parse_result_modifiers(line, &modifiers);
 	while(true) {
 		memset(&operandtxt,0,sizeof(operand));
 		find_nth((char *)line, idx++, operandtxt, sizeof(operand));
@@ -299,11 +345,11 @@ void process_instruction(const char *line) {
 		parse_operand(operandtxt, &operand, idx-2, instruction);
 		printf("oper: %s\n", operandtxt);
 	}
-	write_instruction(instruction, &operand);
+	write_instruction(instruction, &operand, &modifiers);
 	
 }
 
-void process_line(const char *line) {
+void process_line(char *line) {
 	int len = strlen(line);
 	if(line[0] == '#') {
 		process_macro(line);
@@ -327,7 +373,7 @@ void compile_shader(FILE *fd) {
 	while(c = fgetc(fd)) {
 		if(c == EOF) {
 			line[i] = 0;
-			if(line[0] != '#')
+			if(line[0] != '#' || line[0] == ';')
 				process_line(line); 
 			//printf("Last line: %s\n",line);
 			break;
@@ -335,7 +381,7 @@ void compile_shader(FILE *fd) {
 		} else if(c == '\n') {
 			line[i] = 0;
 			i = 0;
-			if(line[0] != '#')
+			if(line[0] != '#' || line[0] == ';')
 				process_line(line);
 			//printf("Parse line: %s\n",line);
 		}else {
@@ -352,7 +398,7 @@ void preprocess_shader(FILE *fd) {
 	while(c = fgetc(fd)) {
 		if(c == EOF) {
 			line[i] = 0;
-			if(line[0] == '#') {
+			if(line[0] == '#' || line[0] == ';') {
 				process_line(line);
 			} else if(strchr(line, '#') != NULL) {
 				printf("process line is: %d\n",inst_idx);
@@ -367,7 +413,7 @@ void preprocess_shader(FILE *fd) {
 		} else if(c == '\n') {
 			line[i] = 0;
 			i = 0;
-			if(line[0] == '#') {
+			if(line[0] == '#' || line[0] == ';') {
 				process_line(line);
 			} else if(strchr(line, '#') != NULL) {
 				printf("process line is: %d\n",inst_idx);
@@ -395,9 +441,15 @@ char *find_first_nonalpha(char *name) {
 	}
 	return NULL;
 }
-uint32_t parse_accessors(const char *string) {
+uint32_t parse_accessors(EShaderRegister reg, const char *string) {
 	int len =strlen(string);
 	uint32_t flags = 0;
+	if(reg == EShaderRegister_Mat) {
+		flags |= find_material_accessor_by_name(string);
+		string = strchr(string, '.');
+		if(string == NULL) return flags;
+		string++;
+	}
 	for(int i=0;i<len;i++) {
 		flags |= find_accessor_by_char(string[i]);
 	}
@@ -425,6 +477,11 @@ void parse_operand(char *string, EOperandInfo *operand, int index, EShaderInstru
 	int operidx = 0;
 	char original_string[128];
 	memset(&original_string,0, sizeof(original_string));
+	bool negate = false;
+	if(string[0] == '-') {
+		string++;
+		negate = true;
+	}
 	strcpy(original_string, string);
 	char *num = find_first_nonalpha(string);
 	char reg[32];
@@ -441,7 +498,7 @@ void parse_operand(char *string, EOperandInfo *operand, int index, EShaderInstru
 			}
 			EShaderRegister reg = find_register_by_name(string);
 			operand->registers[index] = reg;
-			operand->accessors[index] = parse_accessors(accessor);
+			operand->accessors[index] = parse_accessors(reg, accessor);
 			operand->indexes[index] = operidx;
 		} else { //"vec0"
 			int regnum = atoi(num);
@@ -452,6 +509,9 @@ void parse_operand(char *string, EOperandInfo *operand, int index, EShaderInstru
 			operand->registers[index] = reg;
 		}
 	}
+	if(negate) {
+		operand->accessors[index] |= EVectorFlags_Negate;
+	}
 	operand->registers[index] = find_register_by_name(string);
 	if(instruction >= EShaderInstruction_BranchBegin && instruction <= EShaderInstruction_BranchEnd) {
 		operand->jump_index = find_jump_index_by_name(original_string);
@@ -459,7 +519,7 @@ void parse_operand(char *string, EOperandInfo *operand, int index, EShaderInstru
 		return;
 	}
 	if(operand->registers[index] == -1) { //literal value
-		if(original_string[0] == '#') { //skip marker definition
+		if(original_string[0] == '#' || original_string[0] == ';') { //skip marker definition
 		} else {
 			parse_literal(operand, index, original_string);
 			//printf("some literal: %s\n",original_string);

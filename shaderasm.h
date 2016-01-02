@@ -62,9 +62,9 @@ enum EVectorFlags {
 	EVectorFlags_Green = (1<<1),
 	EVectorFlags_Blue = (1<<2),
 	EVectorFlags_Alpha = (1<<3),
-};
-enum EMaterialFlags { //material accessors
-	EMaterialFlags_TexCount = (1<<0),
+	EMaterialDataType_TexCount = (1<<4),
+	EMaterialDataType_Diffuse = (1<<5),
+	EVectorFlags_Negate = (1<<6),
 };
 
 enum EPreProcessorType {
@@ -72,6 +72,11 @@ enum EPreProcessorType {
 	EPreProcessor_TexSamplerType,
 	EPreProcessor_Marker,
 };
+typedef struct {
+	float multiplier; //0.0 = no mult
+	float clamp_min;//0.0 - 0.0 = no clamp
+	float clamp_max; 
+} InstructionModifiers;
 bool isbranch(EShaderInstruction instruction);
 bool isliteral(EShaderRegister reg);
 #endif //_SHADERASM_H

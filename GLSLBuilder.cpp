@@ -25,6 +25,8 @@ namespace ShaderLib {
 					memcpy(&pack.jump, &src[i+1], sizeof(uint16_t));
 					i += sizeof(uint16_t);
 				} else {
+					memcpy(&pack.modifiers, &src[i+1], sizeof(InstructionModifiers));
+					i += sizeof(InstructionModifiers);
 					uint8_t operand_count = src[++i];
 					for(int j=0;j<operand_count;j++) {
 						pack.reg[j] = src[++i];
@@ -62,59 +64,52 @@ namespace ShaderLib {
 			char operand[3][32];
 			int operand_len[3];
 			memset(&operand,0,sizeof(operand));
+			*out = 0;
+			for(int i=0;i<3;i++) {
+				get_operand(data, i, (char *)&operand[i], &operand_len[i]);
+			}
 			switch(data->instuction) {
 				case EShaderInstruction_Mov: { //mov(assignment) instruction
-					int idx = 0;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
-					idx++;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
 					*len = sprintf(out, "%s = %s;",operand[0],operand[1]);
-
 					break;
 				}
 				case EShaderInstruction_SampleTex: {
-					int idx = 0;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
-					idx++;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
-					idx++;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
-					*len = sprintf(out, "%s = %s(%s, %s);",operand[0],m_texname_map[m_uv_mode[data->register_index[idx]]].name,operand[1], operand[2]);
+					*len = sprintf(out, "%s = %s(%s, %s);",operand[0],m_texname_map[m_uv_mode[data->register_index[0]]].name,operand[1], operand[2]);
 					break;
 				}
 				case EShaderInstruction_MulCpy: {
-					int idx = 0;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
-					idx++;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
 					*len = sprintf(out, "%s *= %s;",operand[0],operand[1]);
 					break;
 				}
+				case EShaderInstruction_Mul: {
+					*len = sprintf(out, "%s = %s * %s;",operand[0],operand[1],operand[2]);
+					break;
+				}
 				case EShaderInstruction_AddCpy: {
-					int idx = 0;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
-					idx++;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
 					*len = sprintf(out, "%s += %s;",operand[0],operand[1]);
 					break;
 				}
 				case EShaderInstruction_SubCpy: {
-					int idx = 0;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
-					idx++;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
 					*len = sprintf(out, "%s -= %s;",operand[0],operand[1]);
 					break;
 				}
 				case EShaderInstruction_DivCpy: {
-					int idx = 0;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
-					idx++;
-					get_operand(data, idx, (char *)&operand[idx], &operand_len[idx]);
 					*len = sprintf(out, "%s /= %s;",operand[0],operand[1]);
 					break;
 				}
 			}
+			char tempbuf[128];
+			memset(&tempbuf,0,sizeof(tempbuf));
+			if(data->modifiers.multiplier != 0.0) {
+				sprintf(tempbuf, "\n%s *= %.02f;", operand[0],data->modifiers.multiplier);
+				strcat(out, tempbuf);
+			}
+			if(data->modifiers.clamp_min != 0.0 || data->modifiers.clamp_max != 0.0) {
+				sprintf(tempbuf, "\n%s = clamp(%s,%.02f, %.02f);", operand[0],operand[0],data->modifiers.clamp_min,data->modifiers.clamp_max);
+				strcat(out, tempbuf);
+			}
+
+			*len = strlen(out);
 		}
 		void GLSLBuilder::get_operand(InstructionPack *data, int index, char *out, int *out_len) {
 			char temp[256];
@@ -127,17 +122,48 @@ namespace ShaderLib {
 				case EShaderRegister_Vector:
 				{
 					len += sprintf(temp, "vec%d",data->register_index[index]);
-					strcpy(out, temp);						
+					if(data->accessor[index] & EVectorFlags_Negate) {
+						strcat(out, "-");
+						len++;
+					}
+					strcat(out, temp);
+					break;
+				}
+				case EShaderRegister_Mat:
+				{
+					len += sprintf(temp, "mat[%d]",data->register_index[index]);
+					if(data->accessor[index] & EVectorFlags_Negate) {
+						strcat(out, "-");
+						len++;
+					}
+					strcat(out, temp);
+					break;
+				}
+				case EShaderRegister_Col: {
+					len += sprintf(temp, "vertcol",data->register_index[index]);
+					if(data->accessor[index] & EVectorFlags_Negate) {
+						strcat(out, "-");
+						len++;
+					}
+					strcat(out, temp);
 					break;
 				}
 				case EShaderRegister_Texture: {
 					len += sprintf(temp, "tex%d",data->register_index[index]);
-					strcpy(out, temp);						
+					if(data->accessor[index] & EVectorFlags_Negate) {
+						strcat(out, "-");
+						len++;
+					}
+					strcat(out, temp);
 					break;
 				}
 				case EShaderRegister_UVW: {
 					len += sprintf(temp, "texpos%d",data->register_index[index]);
-					strcpy(out, temp);						
+					if(data->accessor[index] & EVectorFlags_Negate) {
+						strcat(out, "-");
+						len++;
+					}
+					strcat(out, temp);
 					break;
 				}
 				//immediates
@@ -153,7 +179,11 @@ namespace ShaderLib {
 					temp[tlen-1] = ')';
 					temp[tlen] = 0;
 					out[0] = 0;
-					strcpy(out, temp);
+					if(data->accessor[index] & EVectorFlags_Negate) {
+						strcat(out, "-");
+						len++;
+					}
+					strcat(out, temp);
 					break;
 				case EShaderRegister_Float:
 					len += sprintf(temp, "vec%d(",data->num_values[index]);
@@ -167,11 +197,26 @@ namespace ShaderLib {
 					temp[tlen-1] = ')';
 					temp[tlen] = 0;
 					out[0] = 0;
-					strcpy(out, temp);
+					if(data->accessor[index] & EVectorFlags_Negate) {
+						strcat(out, "-");
+						len++;
+					}
+					strcat(out, temp);
 					break;
 			}
 			if(data->accessor[index] != 0) {
-				out[len++] = '.';
+				
+				if(data->accessor[index] & EMaterialDataType_TexCount) {
+					out[len++] = '.';
+					strcat(out, "tex_count");
+					len += 9;
+				} else if(data->accessor[index] & EMaterialDataType_Diffuse) {
+					out[len++] = '.';
+					strcat(out, "diffuse");
+					len += 7;
+				}
+				if(data->accessor[index] & EVectorFlags_Red|EVectorFlags_Blue|EVectorFlags_Green|EVectorFlags_Alpha)
+					out[len++] = '.';
 						
 				if(data->accessor[index] & EVectorFlags_Red) {
 					out[len++] = 'r';
@@ -185,6 +230,8 @@ namespace ShaderLib {
 				if(data->accessor[index] & EVectorFlags_Alpha) {
 					out[len++] = 'a';
 				}
+			} else if(data->reg[index] == EShaderRegister_Mat) {
+
 			}
 			*out_len = strlen(out);
 			out[*out_len] = 0;

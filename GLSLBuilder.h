@@ -13,6 +13,7 @@ namespace ShaderLib {
 			uint32_t uintval;
 		} values[3][4]; //4 because of vectors
 		uint8_t num_values[3];
+		InstructionModifiers modifiers;
 	} InstructionPack;
 	typedef struct {
 		uint8_t mode;
