@@ -58,8 +58,11 @@ namespace ShaderLib {
 				char glsl_line[128];
 				int line_len = 0;
 				get_instruction((char *)&glsl_line, &line_len, &pack);
-				printf("%s\n",glsl_line);
+				
+				strcat(out, glsl_line);
+				strcat(out, "\n");
 			}
+			*out_len = strlen(out);
 		}
 		void GLSLBuilder::get_instruction(char *out, int *len, InstructionPack *data) {
 			char operand[4][32];
@@ -145,7 +148,17 @@ namespace ShaderLib {
 				}
 				case EShaderRegister_Mat:
 				{
-					len += sprintf(temp, "material");
+					len += sprintf(temp, "Material");
+					if(data->accessor[index] & EVectorFlags_Negate) {
+						strcat(out, "-");
+						len++;
+					}
+					strcat(out, temp);
+					break;
+				}
+				case EShaderRegister_Const:
+				{
+					len += sprintf(temp, "constants[%d]",data->register_index[index]);
 					if(data->accessor[index] & EVectorFlags_Negate) {
 						strcat(out, "-");
 						len++;
@@ -154,7 +167,7 @@ namespace ShaderLib {
 					break;
 				}
 				case EShaderRegister_Col: {
-					len += sprintf(temp, "vertcol",data->register_index[index]);
+					len += sprintf(temp, "ex_Color",data->register_index[index]);
 					if(data->accessor[index] & EVectorFlags_Negate) {
 						strcat(out, "-");
 						len++;
@@ -163,7 +176,7 @@ namespace ShaderLib {
 					break;
 				}
 				case EShaderRegister_Texture: {
-					len += sprintf(temp, "tex%d",data->register_index[index]);
+					len += sprintf(temp, "texture%d",data->register_index[index]);
 					if(data->accessor[index] & EVectorFlags_Negate) {
 						strcat(out, "-");
 						len++;
@@ -172,7 +185,7 @@ namespace ShaderLib {
 					break;
 				}
 				case EShaderRegister_UVW: {
-					len += sprintf(temp, "texpos%d",data->register_index[index]);
+					len += sprintf(temp, "ex_UV%d",data->register_index[index]);
 					if(data->accessor[index] & EVectorFlags_Negate) {
 						strcat(out, "-");
 						len++;

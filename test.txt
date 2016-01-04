@@ -1,8 +1,1 @@
-stex vec0.rgba tex0 uv0
-stex vec1.rgba tex1 uv1
-mul vec2.rgb -vec0.rgb mat0.diffuse.rgb | clamp(0.0,1.0)
-mul vec3.rgb vec1.rgb mat1.diffuse.rgb | clamp(0.0,1.0)
-mul vec0.rgb vec2.rgb mat0.diffuse.rgb | clamp(0.0,1.0) x(4.0)
-mul vec1.rgb vec3.rgb mat1.diffuse.rgb | clamp(0.0,1.0) x(4.0)
-mul vec0.a vec2.rgb vertcol.a | clamp(0.0,1.0) x(2.0)
-mul vec1.a vec3.rgb vertcol.a | clamp(0.0,1.0) x(2.0)
+lerp vec1.rgb vec0.rgb vec1.rgb vec0.a

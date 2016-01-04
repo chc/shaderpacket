@@ -585,10 +585,12 @@ void parse_operand(char *string, EOperandInfo *operand, int index, EShaderInstru
 
 
 void run_shader_file(FILE *fd) {
+	memset(&ShaderASM::g_asmState,0,sizeof(ShaderASM::g_asmState));
 	preprocess_shader_file((FILE*)fd);
 	compile_shader_file((FILE*)fd);
 }
 void run_shader_mem(void *data, int len) {
+	memset(&ShaderASM::g_asmState,0,sizeof(ShaderASM::g_asmState));
 	preprocess_shader_mem(data, len);
 	compile_shader_mem(data, len);
 }
@@ -604,34 +606,35 @@ int file_len(FILE *fd) {
 }
 
 
-int main() {
-	/*
-	FILE *fd = fopen("test.txt","rb");
-	if(!fd) {
-		return -1;
-	}
-	memset(&ShaderASM::g_asmState,0,sizeof(ShaderASM::g_asmState));
-	ShaderASM::preprocess_shader_file(fd);
-	fseek(fd,0,SEEK_SET);
-	ShaderASM::compile_shader_file(fd);
-	ShaderLib::GLSLBuilder *builder = new ShaderLib::GLSLBuilder();
-	char out[2048];
-	int outlen;
-	builder->build((char *)&out,&outlen,(char *)ShaderASM::g_asmState.opcodeBuffer,ShaderASM::g_asmState.opcodeWriteIDX);
-	*/
-
-	void *buff;
-	FILE *fd = fopen("dump.bin","rb");
-
-	int len = ShaderASM::file_len(fd);
-	buff = malloc(len);
-
-	fread(buff,len,1,fd);
-	
-	ShaderLib::GLSLBuilder *builder = new ShaderLib::GLSLBuilder();
-	char out[2048];
-	int outlen;
-	builder->build((char *)&out,&outlen,(char *)buff,len);
-
-	return 0;
-}
+//int main() {
+//	/*
+//	FILE *fd = fopen("test.txt","rb");
+//	if(!fd) {
+//		return -1;
+//	}
+//	memset(&ShaderASM::g_asmState,0,sizeof(ShaderASM::g_asmState));
+//	ShaderASM::preprocess_shader_file(fd);
+//	fseek(fd,0,SEEK_SET);
+//	ShaderASM::compile_shader_file(fd);
+//	ShaderLib::GLSLBuilder *builder = new ShaderLib::GLSLBuilder();
+//	char out[2048];
+//	int outlen;
+//	builder->build((char *)&out,&outlen,(char *)ShaderASM::g_asmState.opcodeBuffer,ShaderASM::g_asmState.opcodeWriteIDX);
+//	*/
+//
+//	void *buff;
+//	FILE *fd = fopen("D1A230BB.bin","rb");
+//
+//	int len = ShaderASM::file_len(fd);
+//	buff = malloc(len);
+//
+//	fread(buff,len,1,fd);
+//	
+//	ShaderLib::GLSLBuilder *builder = new ShaderLib::GLSLBuilder();
+//	char out[2048];
+//	int outlen;
+//	memset(&out,0,sizeof(out));
+//	builder->build((char *)&out,&outlen,(char *)buff,len);
+//
+//	return 0;
+//}
